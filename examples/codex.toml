@@ -1,0 +1,7 @@
+# Replace command with the absolute executable path on your machine.
+[mcp_servers.web-gpt]
+command = "/absolute/path/to/codex-web-gpt/.venv/bin/web-gpt"
+args = ["mcp"]
+startup_timeout_sec = 20
+tool_timeout_sec = 1020
+enabled_tools = ["ask_chatgpt", "read_chatgpt"]
