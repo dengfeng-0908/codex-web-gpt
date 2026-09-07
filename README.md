@@ -115,7 +115,7 @@ enabled_tools = ["ask_chatgpt", "read_chatgpt"]
 先明确订阅属于国内 `bigmodel` 还是海外 `zai`，并使用对应的 Coding Plan Key。可以通过本机环境变量 `GLM_CODING_API_KEY` 提供 Key，再保存不含凭据的配置：
 
 ```sh
-.venv/bin/glm-code configure --provider bigmodel --model glm-5.2
+.venv/bin/glm-code configure --provider bigmodel --model glm-5.3
 .venv/bin/glm-code doctor
 .venv/bin/glm-code ask --prompt 'Review: def last(xs): return xs[len(xs)]'
 .venv/bin/glm-code ask --prompt-file /absolute/path/code-review-task.txt --timeout 600
@@ -124,14 +124,14 @@ enabled_tools = ["ask_chatgpt", "read_chatgpt"]
 已有 ZCode 配置时，也可明确指定读取哪个 provider 的 Key；运行时只读取，不复制 Key，不修改 ZCode 配置。示例 provider 键须与自己的配置匹配：
 
 ```sh
-.venv/bin/glm-code configure --provider bigmodel --model glm-5.2 \
+.venv/bin/glm-code configure --provider bigmodel --model glm-5.3 \
   --zcode-config "$HOME/.zcode/v2/config.json" \
   --zcode-provider 'builtin:bigmodel-coding-plan'
 ```
 
 `--provider` 决定实际请求地址；`--zcode-provider` 只决定 Key 来源。两者必须对应同一订阅服务，不能仅凭 Key 存放位置猜测。国内地址固定为 `https://open.bigmodel.cn/api/anthropic`，海外固定为 `https://api.z.ai/api/anthropic`，失败不会切换到其他计费接口。配置保存到本机应用数据目录的 `glm.json`，其中只有服务、模型和可选来源路径。
 
-GLM 首版用于独立代码审查、解释、算法分析和生成建议；每次无历史，必要代码通过提示词提供。子进程没有文件、Shell、MCP 工具或项目配置，不会自行修改工作区。原有 Claude Code 设置和认证通过独立配置目录隔离。默认 `--effort high`，可选 `low/medium/high`；这是向 CLI 请求的档位，实际映射由 GLM 服务决定，不等同于 ChatGPT 的五档。可用 `--model glm-…` 指定套餐支持的其他模型，不自动降级。
+GLM 首版用于独立代码审查、解释、算法分析和生成建议；每次无历史，必要代码通过提示词提供。子进程没有文件、Shell、MCP 工具或项目配置，不会自行修改工作区。原有 Claude Code 设置和认证通过独立配置目录隔离。默认模型为 `glm-5.3`，默认 `--effort max`（最高推理强度）；可显式选择 `low/medium/high/max`，不会自动降低档位。GLM-5.3 原生支持 low/high/max，medium 保留为 CLI 兼容选项，不等同于 ChatGPT 的五档。[官方模型说明](https://huggingface.co/zai-org/GLM-5.3#note)。已有配置不会被安装覆盖，升级后重新运行 configure 并保留原 Key 来源即可将默认模型改为 GLM-5.3。可用 `--model glm-…` 指定套餐支持的其他模型，不自动降级。
 
 返回 JSON 的 `completed` 才表示拿到答案；`timeout` 会终止本次 CLI，远端可能已经消耗额度，不自动重发。`doctor` 只验证本机配置，不能证明账号认证或剩余额度。订阅限额及支持工具范围仍适用，不能据此视为通用按量 API 余额。[套餐说明](https://docs.bigmodel.cn/cn/coding-plan/overview)
 
@@ -159,7 +159,7 @@ git diff --check
 
 2026-09-06 已完成 17 项本地测试，并分别做过真实 CLI 收发、独立 MCP 追问、关闭标签页后的只读恢复、退出浏览器后的免重新登录恢复和五档切换验证。即时档做过真实收发；Pro 仅验证切换生效，未以长任务验证其推理效果。真实账号验证不代表所有账号或后续网页版本兼容。
 
-2026-09-07：20 项浏览器／协议测试与 5 项 GLM 委派测试通过，源码包和 wheel 构建通过。真实 CLI 同轮上传 PNG + TXT，网页版正确返回文件标记和图片颜色（22.5 秒）；独立 MCP 进程在同一会话上传新 TXT 并返回新标记（13.8 秒）。GLM 国内接口通过 Claude Code 2.1.63、`glm-5.2` 完成最小代码修复问答（服务报告约 2.8 秒）。没有读取订阅后台账单，GLM 海外接口和其他模型尚未实测。
+2026-09-07：20 项浏览器／协议测试与 5 项 GLM 委派测试通过，源码包和 wheel 构建通过。真实 CLI 同轮上传 PNG + TXT，网页版正确返回文件标记和图片颜色（22.5 秒）；独立 MCP 进程在同一会话上传新 TXT 并返回新标记（13.8 秒）。GLM 国内接口通过 Claude Code 2.1.63、`glm-5.2` 完成最小代码修复问答（服务报告约 2.8 秒）。没有读取订阅后台账单，GLM 海外接口尚未实测。
 
 真实追问验证中曾出现答案正常、整个输入框未渲染的情况，接口返回 `editor_unavailable` 且未发送；确认测试会话无草稿、用户消息仍为 1 条后刷新，输入框恢复，随后 MCP 附件追问成功。原因尚未确定，程序没有增加自动刷新或重发；遇到同类状态先检查网页，不按登录失效处理。
 
@@ -172,3 +172,5 @@ git diff --check
 依赖与接口参考：[Playwright CDP](https://playwright.dev/python/docs/api/class-browsertype#browser-type-connect-over-cdp)、[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)、[Codex MCP 配置](https://learn.chatgpt.com/docs/extend/mcp)。
 
 本项目使用 [MIT License](LICENSE)。
+
+2026-09-07 默认更新：GLM-5.3 + max 真实代码修复调用成功（服务报告 3016 ms）。Claude Code 2.1.63 的本地测试接收端确认实际请求含 `model: glm-5.3`、`thinking.type: adaptive` 和 `output_config.effort: max`；不只依据返回的 requested_effort 标签判断。

@@ -20,7 +20,7 @@ class GlmTests(unittest.TestCase):
             'CLAUDE_CODE_OAUTH_TOKEN': 'unrelated-auth',
         })
         self.env.start()
-        glm.configure('bigmodel', 'glm-5.2')
+        glm.configure('bigmodel', 'glm-5.3')
         self.executable = self.root / 'claude'
 
     def tearDown(self):
@@ -37,7 +37,8 @@ class GlmTests(unittest.TestCase):
 args=sys.argv[1:]
 assert args[args.index('--tools')+1] == ''
 assert args[args.index('--setting-sources')+1] == ''
-assert args[args.index('--model')+1] == 'glm-5.2'
+assert args[args.index('--model')+1] == 'glm-5.3'
+assert args[args.index('--effort')+1] == 'max'
 assert '--strict-mcp-config' in args and '--no-session-persistence' in args
 assert os.environ['ANTHROPIC_BASE_URL'] == 'https://open.bigmodel.cn/api/anthropic'
 assert os.environ['ANTHROPIC_AUTH_TOKEN'] == 'fixture-secret'
@@ -48,6 +49,7 @@ print(json.dumps({'result':'Reviewed: '+sys.stdin.read(),'duration_ms':10}))
             result = glm.ask('def f(): return 1', timeout=5)
         self.assertEqual(result['status'], 'completed')
         self.assertEqual(result['answer'], 'Reviewed: def f(): return 1')
+        self.assertEqual(result['requested_effort'], 'max')
 
     def test_provider_error_redacts_key_and_never_returns_success(self):
         with self.cli('''import json,os

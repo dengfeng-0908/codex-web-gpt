@@ -17,6 +17,9 @@ ENDPOINTS = {
     "bigmodel": "https://open.bigmodel.cn/api/anthropic",
     "zai": "https://api.z.ai/api/anthropic",
 }
+DEFAULT_MODEL = "glm-5.3"
+DEFAULT_EFFORT = "max"
+EFFORTS = ("low", "medium", "high", "max")
 
 
 def config_path() -> Path:
@@ -76,9 +79,9 @@ def child_environment(config: dict, key: str, timeout: int) -> dict:
     return env
 
 
-def ask(prompt: str, timeout: int = 600, model: str | None = None, effort: str = "high") -> dict:
-    if not prompt.strip() or not 1 <= timeout <= 1800 or effort not in {"low", "medium", "high"}:
-        return {"status": "invalid_input", "message": "需要非空 prompt；timeout 为 1–1800 秒，effort 为 low/medium/high。"}
+def ask(prompt: str, timeout: int = 600, model: str | None = None, effort: str = DEFAULT_EFFORT) -> dict:
+    if not prompt.strip() or not 1 <= timeout <= 1800 or effort not in EFFORTS:
+        return {"status": "invalid_input", "message": "需要非空 prompt；timeout 为 1–1800 秒，effort 为 low/medium/high/max。"}
     try:
         config = load_config()
         if config.get("provider") not in ENDPOINTS:
@@ -125,7 +128,7 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     setup = sub.add_parser("configure", help="只保存服务、模型和 Key 来源路径，不复制 Key")
     setup.add_argument("--provider", choices=ENDPOINTS, required=True)
-    setup.add_argument("--model", default="glm-5.2")
+    setup.add_argument("--model", default=DEFAULT_MODEL)
     setup.add_argument("--zcode-config")
     setup.add_argument("--zcode-provider", help="读取 ZCode 配置中的具体 provider 键")
     sub.add_parser("doctor", help="检查本机 CLI 和 Key 是否就绪，不发送请求")
@@ -134,7 +137,7 @@ def main():
     source.add_argument("--prompt")
     source.add_argument("--prompt-file", type=Path)
     send.add_argument("--model")
-    send.add_argument("--effort", choices=["low", "medium", "high"], default="high")
+    send.add_argument("--effort", choices=EFFORTS, default=DEFAULT_EFFORT, help="默认 max，最高推理强度")
     send.add_argument("--timeout", type=int, default=600)
     args = parser.parse_args()
     try:
@@ -145,7 +148,8 @@ def main():
             credential(config)
             ready = config.get("provider") in ENDPOINTS and bool(shutil.which("claude"))
             result = {"status": "ready" if ready else "not_configured", "provider": config.get("provider"),
-                      "model": config.get("model"), "key_present": True, "network_verified": False}
+                      "model": config.get("model"), "default_effort": DEFAULT_EFFORT,
+                      "key_present": True, "network_verified": False}
         else:
             prompt = args.prompt if args.prompt is not None else args.prompt_file.read_text(encoding="utf-8")
             result = ask(prompt, args.timeout, args.model, args.effort)
