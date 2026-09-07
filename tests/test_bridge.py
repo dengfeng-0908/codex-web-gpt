@@ -19,10 +19,34 @@ OTHER_PROJECT = "https://chatgpt.com/g/g-p-other/project"
 
 FIXTURE = """<!doctype html><html><head><meta charset="utf-8"></head><body>
 <div id="turns"></div>
+<form onsubmit="return false">
+<input id="upload-files" type="file" multiple>
+<div id="attachments"></div>
 <div id="prompt-textarea" contenteditable="true"></div>
-<button class="__composer-pill" aria-haspopup="menu" id="effort-trigger">极高</button>
-<button data-testid="send-button">Send</button>
+<button type="button" class="__composer-pill" aria-haspopup="menu" id="effort-trigger">极高</button>
+<button type="button" data-testid="send-button">Send</button>
+</form>
 <script>
+window.uploadDelay = 500;
+document.querySelector('#upload-files').onchange = event => {
+ window.uploaded = [...event.target.files].map(f => ({name:f.name,size:f.size}));
+ for (const file of event.target.files) {
+   const tile = document.createElement('div');
+   tile.className = 'group/file-tile'; tile.setAttribute('role','group');
+   tile.setAttribute('aria-label',file.name);
+   tile.innerHTML = '<span class="cursor-wait">uploading</span>';
+   document.querySelector('#attachments').append(tile);
+   setTimeout(() => {
+     if (window.uploadError) {
+       const alert = document.createElement('div'); alert.setAttribute('role','alert');
+       alert.textContent = 'Upload rejected'; document.body.append(alert);
+     } else {
+       tile.innerHTML = '';
+       if (window.renameUpload) tile.setAttribute('aria-label',file.name.replace(/(\\.[^.]+)$/, '(1)$1'));
+     }
+   }, window.uploadDelay);
+ }
+};
 window.effortValue = Number(localStorage.getItem('effortValue') ?? 3);
 const effortLabels = ['即时', '中', '高', '极高', '6 Pro'];
 const effortTrigger = document.querySelector('#effort-trigger');
@@ -72,6 +96,9 @@ document.querySelector('[data-testid="send-button"]').onclick = () => {
  const editor = document.querySelector('#prompt-textarea');
  window.sent.push(editor.innerText);
  const question = editor.innerText;
+ window.sentWhileUploading = !!document.querySelector('#attachments .cursor-wait');
+ window.sentAttachments = [...document.querySelectorAll('#attachments [role=group]')].map(e=>e.getAttribute('aria-label'));
+ document.querySelector('#attachments').innerHTML = '';
  editor.innerText = '';
  if (!location.pathname.includes('/c/')) {
    const next = Number(localStorage.getItem('nextConversation') || 0) + 1;
@@ -174,6 +201,41 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
             result = await chatgpt.ask("must not send", timeout=1)
         self.assertEqual(result["status"], "busy")
         self.assertEqual(await self.page.evaluate("window.sent.length"), 0)
+
+    async def test_upload_waits_for_all_files_and_accepts_library_rename(self):
+        files = [Path(self.storage.name) / name for name in ['note.txt', 'picture.png']]
+        for path in files:
+            path.write_bytes(b'fixture bytes')
+        await self.page.evaluate('window.renameUpload = true')
+        result = await chatgpt.ask('read files', timeout=5, attachments=[str(p) for p in files])
+        self.assertEqual(result['status'], 'completed')
+        self.assertFalse(await self.page.evaluate('window.sentWhileUploading'))
+        self.assertEqual(await self.page.evaluate('window.sentAttachments'), ['note(1).txt', 'picture(1).png'])
+        followup = await chatgpt.ask('continue', result['session_id'], timeout=5)
+        self.assertEqual(followup['status'], 'completed')
+        self.assertEqual(await self.page.evaluate('window.sentAttachments'), [])
+
+    async def test_upload_failure_and_timeout_never_send(self):
+        path = Path(self.storage.name) / 'note.txt'
+        path.write_text('test')
+        await self.page.evaluate('window.uploadError = true')
+        result = await chatgpt.ask('must not send', timeout=2, attachments=[str(path)])
+        self.assertEqual(result['status'], 'upload_failed')
+        self.assertEqual(await self.page.evaluate('window.sent'), [])
+        await self.page.reload()
+        await self.page.evaluate('window.uploadDelay = 5000')
+        result = await chatgpt.ask('must not send', timeout=1, attachments=[str(path)])
+        self.assertEqual(result['status'], 'upload_unconfirmed')
+        self.assertEqual(await self.page.evaluate('window.sent'), [])
+        again = await chatgpt.ask('keep draft', timeout=1)
+        self.assertEqual(again['status'], 'draft_present')
+
+    async def test_missing_attachment_rejected_before_browser_launch(self):
+        self.running_mock.return_value = False
+        with patch.object(chatgpt, 'launch_browser') as launch:
+            result = await chatgpt.ask('invalid', attachments=[self.storage.name + '/missing.png'])
+        self.assertEqual(result['status'], 'invalid_input')
+        launch.assert_not_called()
 
     async def test_login_page_prevents_submission(self):
         await self.page.evaluate("""() => {
@@ -286,6 +348,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual({tool.name for tool in tools.tools}, {"ask_chatgpt", "read_chatgpt"})
                 ask_tool = next(tool for tool in tools.tools if tool.name == "ask_chatgpt")
                 self.assertIn("project_url", ask_tool.inputSchema["properties"])
+                self.assertIn("attachments", ask_tool.inputSchema["properties"])
                 self.assertNotIn("project_url", ask_tool.inputSchema.get("required", []))
                 self.assertEqual(ask_tool.inputSchema["properties"]["effort"]["default"], "xhigh")
                 self.assertEqual(set(ask_tool.inputSchema["properties"]["effort"]["enum"]), set(chatgpt.EFFORTS))

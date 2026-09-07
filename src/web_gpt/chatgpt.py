@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 import re
 import time
 from typing import Literal
@@ -22,6 +23,53 @@ Effort = Literal["instant", "medium", "high", "xhigh", "pro"]
 EFFORTS = {"instant": (0, "即时"), "medium": (1, "中"), "high": (2, "高"),
            "xhigh": (3, "极高"), "pro": (4, "Pro")}
 EFFORT_PICKER = '[data-testid="composer-intelligence-picker-content"]'
+ATTACHMENT_TILES = 'form [role="group"][class*="file-tile"][aria-label]'
+
+
+def attachment_paths(attachments: list[str] | None) -> list[Path]:
+    paths = [Path(value).expanduser().resolve() for value in (attachments or [])]
+    for path in paths:
+        if not path.is_file():
+            raise ValueError(f"附件不是可读取的普通文件：{path.name}")
+        with path.open("rb"):
+            pass
+    if len({path.name for path in paths}) != len(paths):
+        raise ValueError("同一轮附件的文件名不能重复，以便核对网页实际接收的文件。")
+    return paths
+
+
+async def upload_attachments(page, paths: list[Path], timeout: int) -> dict | None:
+    """Upload through the composer and wait for every visible tile to finish."""
+    try:
+        await page.locator('form #upload-files[type="file"]').set_input_files(
+            [str(path) for path in paths], timeout=10000)
+        deadline = time.monotonic() + timeout
+        # The website can rename a library collision, e.g. report(1).pdf.
+        expected = [re.compile(re.escape(path.stem) + r"(?:\(\d+\))?" + re.escape(path.suffix) + r"\Z") for path in paths]
+        while True:
+            for alert in await page.locator('[role="alert"]').all():
+                if await alert.is_visible() and (await alert.inner_text()).strip():
+                    return {"status": "upload_failed", "message": "网页报告附件错误，尚未发送；请检查专用窗口。", "url": page.url}
+            tiles = await page.locator(ATTACHMENT_TILES).evaluate_all("""nodes => nodes.map(e => ({
+                name: e.getAttribute('aria-label'),
+                pending: !!e.querySelector('.cursor-wait, [role="progressbar"], circle[stroke-dasharray]')
+            }))""")
+            unmatched = list(tiles)
+            for pattern in expected:
+                match = next((tile for tile in unmatched if pattern.fullmatch(tile["name"])), None)
+                if match is not None:
+                    unmatched.remove(match)
+                else:
+                    break
+            else:
+                if not unmatched and not any(tile["pending"] for tile in tiles):
+                    return None
+            if time.monotonic() >= deadline:
+                break
+            await asyncio.sleep(0.3)
+    except PlaywrightError:
+        pass
+    return {"status": "upload_unconfirmed", "message": "附件上传未能确认完成，尚未发送。已选附件可能保留在网页，请检查后处理；不要自动重试。", "url": page.url}
 
 
 async def select_effort(page, effort: Effort) -> dict:
@@ -204,7 +252,7 @@ def response(session: dict, state: dict, started: float) -> dict:
             "elapsed_seconds": round(time.monotonic() - started, 1)}
 
 
-async def ask(prompt: str, session_id: str | None = None, timeout: int = 600, project_url: str | None = None, effort: Effort = "xhigh") -> dict:
+async def ask(prompt: str, session_id: str | None = None, timeout: int = 600, project_url: str | None = None, effort: Effort = "xhigh", attachments: list[str] | None = None) -> dict:
     if not prompt.strip():
         return {"status": "invalid_input", "message": "prompt 不能为空。"}
     if not 1 <= timeout <= 840:
@@ -212,8 +260,9 @@ async def ask(prompt: str, session_id: str | None = None, timeout: int = 600, pr
     if effort not in EFFORTS:
         return {"status": "invalid_input", "message": "effort 可选 instant、medium、high、xhigh、pro；默认 xhigh。"}
     try:
+        paths = attachment_paths(attachments)
         selected_project = normalize_project_url(project_url) if project_url else None
-    except ValueError as error:
+    except (ValueError, OSError) as error:
         return {"status": "invalid_input", "message": str(error)}
     started = time.monotonic()
     session = None
@@ -263,11 +312,15 @@ async def ask(prompt: str, session_id: str | None = None, timeout: int = 600, pr
                     return {"status": "editor_unavailable", "message": "输入框不可用。请检查登录、弹窗或页面布局。"}
                 if await visible(page, STOP):
                     return {"status": "busy", "message": "网页正在生成，请等待现有回复。"}
-                if (await editor.inner_text()).strip():
+                if (await editor.inner_text()).strip() or await page.locator(ATTACHMENT_TILES).count():
                     return {"status": "draft_present", "message": "专用窗口有未发送草稿；请先处理，工具不会覆盖草稿。"}
                 selected_effort = await select_effort(page, effort)
                 if selected_effort["status"] != "selected":
                     return selected_effort
+                if paths:
+                    problem = await upload_attachments(page, paths, min(timeout, 120))
+                    if problem:
+                        return problem
                 bubbles = page.locator(ASSISTANT)
                 baseline = await bubbles.count()
                 session = {"session_id": session_id or str(uuid4()), "target_id": await target_id(page),
@@ -328,7 +381,7 @@ async def doctor() -> dict:
     async with connection() as context:
         pages = [page for page in context.pages if page.url.startswith("https://chatgpt.com/")]
         if not pages:
-            return {"status": "login_required", "message": "请在专用窗口打开 ChatGPT 并登录。"}
+            return {"status": "no_chatgpt_tab", "message": "专用 Chrome 已运行，但尚未打开 ChatGPT。ask/read 会自动打开或恢复页面；此状态不代表登录失效。"}
         page = pages[-1]
         problem = await page_problem(page)
         if problem:

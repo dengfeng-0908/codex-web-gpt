@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "codex-web-gpt"
-version = "0.1.0"
+version = "0.2.0"
 description = "A small MCP and CLI interface to a dedicated ChatGPT web session"
 readme = "README.md"
 license = "MIT"
@@ -18,6 +18,7 @@ Issues = "https://github.com/dengfeng-0908/codex-web-gpt/issues"
 
 [project.scripts]
 web-gpt = "web_gpt.cli:main"
+glm-code = "web_gpt.glm:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/web_gpt"]

@@ -3,5 +3,5 @@
 command = "/absolute/path/to/codex-web-gpt/.venv/bin/web-gpt"
 args = ["mcp"]
 startup_timeout_sec = 20
-tool_timeout_sec = 1020
+tool_timeout_sec = 1140
 enabled_tools = ["ask_chatgpt", "read_chatgpt"]

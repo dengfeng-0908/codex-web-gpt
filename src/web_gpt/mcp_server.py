@@ -10,9 +10,9 @@ mcp = FastMCP(
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True))
-async def ask_chatgpt(prompt: str, session_id: str | None = None, timeout: int = 600, project_url: str | None = None, effort: Effort = "xhigh") -> dict:
-    """Send one task and wait. Choose effort: normally xhigh; instant/medium/high for simpler faster tasks; pro for very complex tasks. Chrome starts with saved login. Omit session_id for a new chat; reuse it to restore/continue. project_url overrides the default project for new chats. timeout: 1–840 seconds."""
-    return await ask(prompt, session_id, timeout, project_url, effort)
+async def ask_chatgpt(prompt: str, session_id: str | None = None, timeout: int = 600, project_url: str | None = None, effort: Effort = "xhigh", attachments: list[str] | None = None) -> dict:
+    """Send one task and wait. attachments: explicit local file/image paths to upload (not URLs); upload finishes before sending. Choose effort: normally xhigh; instant/medium/high for simpler faster tasks; pro for very complex tasks. Chrome starts with saved login. Omit session_id for a new chat; reuse it to restore/continue. project_url overrides the default project for new chats. timeout: 1–840 seconds."""
+    return await ask(prompt, session_id, timeout, project_url, effort, attachments)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True))

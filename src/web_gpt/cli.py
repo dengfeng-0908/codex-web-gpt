@@ -24,6 +24,7 @@ def main():
     source.add_argument("--prompt")
     source.add_argument("--prompt-file", type=Path)
     send.add_argument("--session")
+    send.add_argument("--attach", action="append", default=[], metavar="PATH", help="上传明确指定的本地图片或文件；可重复传入")
     send.add_argument("--project", help="此次新会话使用的 ChatGPT 项目首页 URL")
     send.add_argument("--effort", choices=EFFORTS, default="xhigh", help="推理档位；默认极高 xhigh，简单任务可降低，复杂任务可用 pro")
     send.add_argument("--timeout", type=int, default=600)
@@ -46,7 +47,7 @@ def main():
         result = asyncio.run(doctor())
     elif args.command == "ask":
         prompt = args.prompt if args.prompt is not None else args.prompt_file.read_text(encoding="utf-8")
-        result = asyncio.run(ask(prompt, args.session, args.timeout, args.project, args.effort))
+        result = asyncio.run(ask(prompt, args.session, args.timeout, args.project, args.effort, args.attach))
     else:
         result = asyncio.run(read(args.session_id, args.timeout))
     print(json.dumps(result, ensure_ascii=False))
